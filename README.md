@@ -44,6 +44,9 @@ Open `StyleMatch.psjs` in a text editor; the `SETTINGS` block at the top explain
 ## Build from source
 `src/` holds the code (`fx_core.js` analysis, `fx_kb.js` / `fx_ref.js` knowledge, `fx_presets.js` looks, `sm_ps_main.js` Photoshop side). `python3 src/build_sm.py 2.4` writes `dist/StyleMatch.psjs`.
 
+## Contributing
+Want to improve it? See [CONTRIBUTING.md](CONTRIBUTING.md): new looks, better detection, test reports are all welcome.
+
 ## Feedback
 Open an issue (Bug report / Feature request / Effect request). A screenshot of the original, your result, your Photoshop version and the text of the "StyleMatch notes" layer help most. Please do not upload whole chapters.
 
