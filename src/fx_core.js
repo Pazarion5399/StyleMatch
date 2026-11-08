@@ -748,7 +748,7 @@ FX.acrossFit = function (P, st) {
     a.gain = eF > 0 ? +(1 - eA / eF).toFixed(3) : 0; a.range = Math.round(range); return a; }
   function best2(pts, flatAt) { if (pts.length < 4 * 150) return null; var b = null, AL = [along(pts, 'x', flatAt), along(pts, 'y', flatAt)];
     if (typeof process !== 'undefined' && process.env && process.env.DBGA) console.log('    along', pts.length / 4, JSON.stringify(AL.map(function (a) { return a && [a.ax, a.gain, a.range, a.stops.length]; })));
-    AL.forEach(function (a) { if (a && ((a.gain >= 0.45 && a.range >= 45) || (a.gain >= 0.25 && a.range >= 100)) && (!b || a.gain > b.gain)) b = a; }); return b; }
+    AL.forEach(function (a) { if (a && ((a.gain >= 0.45 && a.range >= 45) || (a.gain >= 0.25 && a.range >= 100) || (a.ax === 'y' && a.gain >= 0.5 && a.range >= 22)) && (!b || a.gain > b.gain)) b = a; }); return b; }
   var parts = {}, pf = [], fo = st.fillOpacity === undefined ? 1 : st.fillOpacity, flatFill = { fill: st.fill, gradient: st.gradient };
   // the letter faces (past the edge and any inner outline)
   for (i = 0; i < n; i++) { if (!G[i] || dIn[i] < 2 || (st.inner && dIn[i] <= st.inner.size + 1.5)) continue;
@@ -829,7 +829,9 @@ FX.innerGlowFit = function (P, st) {
   if (!best) return null;
   var v = {}; for (var k2 in st) v[k2] = st[k2]; v.innerGlow = best.ig; if (best.noInner) v.inner = null; v.err = FX.score(P, v);
   if (typeof process !== 'undefined' && process.env && process.env.DBGA) console.log('  inner glow?', JSON.stringify(best.ig), 'no inner outline', best.noInner, 'err', v.err, 'was', st.err);
-  return v.err < 0.97 * st.err ? v : null;
+  // ch105 lesson: on normal-size lettering a weak inner glow 'explained' a subtle top-to-bottom gradient; keep it for big SFX with a clear gain
+  if (!(st.thick >= 8) || best.ig.opacity < 0.25) return null;
+  return v.err < 0.92 * st.err ? v : null;
 };
 
 // ---------- RGB split: colour copies of the word moved apart and screen-blended (white where they all overlap, coloured fringes
@@ -1016,7 +1018,7 @@ FX.radialFit = function (P, st) {
       [[0, 0], [-0.25, 0], [0.25, 0], [0, -0.25], [0, 0.25]].forEach(function (o) { var cx = cx0 + o[0] * (x1 - x0), cy = cy0 + o[1] * (y1 - y0);
         ks.forEach(function (k) { var rb = { method: method, side: md[1], k: k, cx: cx, cy: cy }, e = errOf(bs, L, rb); if (!best || e < best.e) best = { rb: rb, e: e, s2: s2, bs: bs, L: L }; }); }); }); });
   if (typeof process !== 'undefined' && process.env && process.env.DBGX) console.log('  radial?', JSON.stringify({ e0: e0, best: best && { e: best.e, m: best.rb.method, side: best.rb.side, k: best.rb.k, cx: Math.round(best.rb.cx - cx0), cy: Math.round(best.rb.cy - cy0), glow: best.s2.glow && [best.s2.glow.opacity, best.s2.glow.size] }, pts: pts.length }));
-  if (!best || best.e > 0.85 * e0) return null;
+  if (!best || best.e > 0.75 * e0) return null;
   // refine the strength and the centre
   [0.75, 0.9, 1.1, 1.3].forEach(function (f) { var rb = { method: best.rb.method, side: best.rb.side, k: best.rb.k * f, cx: best.rb.cx, cy: best.rb.cy }, e = errOf(best.bs, best.L, rb); if (e < best.e) { best.rb = rb; best.e = e; } });
   [[-0.08, 0], [0.08, 0], [0, -0.08], [0, 0.08]].forEach(function (o) { var rb = { method: best.rb.method, side: best.rb.side, k: best.rb.k, cx: best.rb.cx + o[0] * (x1 - x0), cy: best.rb.cy + o[1] * (y1 - y0) }, e = errOf(best.bs, best.L, rb); if (e < best.e) { best.rb = rb; best.e = e; } });
@@ -1680,7 +1682,9 @@ FX.analyze = function (R, C0, w, h, opt) {
     var unmix = function (c) { return c.map(function (v, j) { return Math.max(0, Math.min(255, Math.round((v - g.cover * g.dot[j]) / (1 - g.cover)))); }); };
     if (st.gradient) { st.gradient.top = unmix(st.gradient.top); st.gradient.bottom = unmix(st.gradient.bottom); } else st.fill = unmix(st.fill); }
   if (opt.details !== false) { var det = FX.innerDetails(Pd || st.P0 || P, st); if (det) st.details = det; }
-  if (opt.extrude !== false) { try { var xv = FX.extrusionFit(st.P, st); if (xv && xv.extrude) st = xv; } catch (e) { if (typeof process !== 'undefined' && process.env && process.env.DBGX) console.log('  extrude error', e.message); } }
+  if (opt.extrude !== false) { try { var xv = FX.extrusionFit(st.P, st), oS = st.strokes.length ? st.strokes[st.strokes.length - 1] : null;
+      if (xv && xv.extrude && oS && xv.extrude.len <= 1.6 * oS.size + 2 && xv.extrude.layers.every(function (Ly) { return cdist(Ly.color, oS.color) < 40; })) xv = null;   // ch105: an outline thicker on one side is not 3D depth
+      if (xv && xv.extrude) st = xv; } catch (e) { if (typeof process !== 'undefined' && process.env && process.env.DBGX) console.log('  extrude error', e.message); } }
   if (opt.across !== false) { try { var av = FX.acrossFit(st.P, st); if (av) st = av;
       // rainbow letters: colour groups cut them apart, so the letters may be better found as 'everything that clearly changed'
       var stIG = null;

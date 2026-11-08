@@ -51,6 +51,7 @@ Want to improve it? See [CONTRIBUTING.md](CONTRIBUTING.md): new looks, better de
 Open an issue (Bug report / Feature request / Effect request). A screenshot of the original, your result, your Photoshop version and the text of the "StyleMatch notes" layer help most. Please do not upload whole chapters.
 
 ## Changelog
+- **2.4.1**: lessons from a real chapter: soft two-colour gradients kept (no fake inner glow), inner glow only on big SFX, no fake 3D depth from uneven outlines, stricter Radial Blur detection.
 - **2.4**: Looks library (22 looks covering 72 popular text effects), `#preset` with colour/glow/depth/intensity options, Looks menu window, closest look named in the notes.
 - **2.3**: colours along the word (letters, outlines, glow), soft inner shading, RGB split, extra offset copies, 3D depth as stacked drop shadows, Radial Blur copy, filter guide (32 filters), Radial Blur measured in Photoshop.
 - **2.2**: gradient glows, glow + shadow pairs, art in front of the text, per-line colour ramps, match score.
