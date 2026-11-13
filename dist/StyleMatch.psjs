@@ -1,5 +1,5 @@
 // StyleMatch.psjs  -  gives your translated text the look of the original text (English + Arabic)
-// v2.4.1  -  run from File > Scripts. One Ctrl+Z undoes it.
+// v2.4.2  -  run from File > Scripts. One Ctrl+Z undoes it.
 // ===================== StyleMatch core (pure JavaScript) =====================
 // Reads the original text's look from RAW vs CLEAN pixels and turns it into Photoshop layer-style settings.
 'use strict';
@@ -1997,6 +1997,10 @@ var SETTINGS = {
                          // 'always': always add it (your Raw 13 recipe); 'off': never. Or put #radial in one text layer's name.
   radialAmount: 22,      // Radial Blur Amount used with 'always' when nothing was measured
   notes: true,         // keep a hidden text layer "StyleMatch notes" with the recipe for each text (how the original was made)
+  houseOutlinePx: [3, 6], // v2.4.2 house style: a light (white-ish) outer outline snaps to the nearest of these widths (px) instead of the raw's
+                       // scaled width (your edits: 3 px white, 6 px on small labels). [] = keep the measured width. #keepwidth in a layer name skips it.
+  houseGradient: 0.12, // v2.4.2 house style: coloured letters with one flat colour get a soft 2-colour vertical gradient (top 12% lighter,
+                       // bottom 12% darker), like your edits. 0 = off. Black and white letters are left flat.
   showSetupErrors: true
 };
 var PS = require('photoshop');
@@ -2043,6 +2047,14 @@ function gradDesc(stops, ax, name) {
 function gradParts(a) { return { angle: { _unit: 'angleUnit', _value: a.ax === 'y' ? 90 : 0 }, type: { _enum: 'gradientType', _value: 'linear' }, reverse: false, dither: false, scale: pct(100), align: true, offset: { _obj: 'paint', horizontal: pct(0), vertical: pct(0) } }; }
 function effectsFor(st, k, noGradGlow) {
   var fx = { _obj: 'layerEffects', scale: pct(100) };
+  // house style: flat coloured letters -> soft two-colour vertical gradient (lighter top, darker bottom)
+  if (SETTINGS.houseGradient > 0 && !st.keepWidth && !st.fillAcross && !st.gradient && st.fill) {
+    var f0 = st.fill, mx = Math.max(f0[0], f0[1], f0[2]), mn = Math.min(f0[0], f0[1], f0[2]), lu = 0.299 * f0[0] + 0.587 * f0[1] + 0.114 * f0[2];
+    if (mx - mn > 35 && lu > 25 && lu < 235) {
+      var g = SETTINGS.houseGradient, cl = function (v) { return Math.max(0, Math.min(255, Math.round(v))); };
+      st.gradient = { top: f0.map(function (v) { return cl(v + (255 - v) * g); }), bottom: f0.map(function (v) { return cl(v * (1 - g)); }), locTop: 4011, locBot: 85, house: true };
+    }
+  }
   var base = { enabled: true, present: true, showInDialog: true };
   if (st.fillAcross) fx.gradientFill = Object.assign({ _obj: 'gradientFill', mode: { _enum: 'blendMode', _value: 'normal' }, opacity: pct(100), gradient: gradDesc(st.fillAcross.stops, st.fillAcross.ax, 'StyleMatch letters') }, gradParts(st.fillAcross), base);
   else if (st.gradient) {
@@ -2060,6 +2072,16 @@ function effectsFor(st, k, noGradGlow) {
     else { f.paintType = { _enum: 'frameFill', _value: 'solidColor' }; f.color = rgbDesc(color); }
     return Object.assign(f, base); }
   var frames = [];
+  // house style: the outermost light outline gets the house width (exact px, not scaled to the letters)
+  var HW = SETTINGS.houseOutlinePx; if (typeof HW === 'number') HW = HW > 0 ? [HW] : [];
+  if (HW.length && !st.keepWidth && st.strokes.length) {
+    var o = st.strokes[st.strokes.length - 1], oc = o.color || [0, 0, 0];
+    if (!o.across && (0.299 * oc[0] + 0.587 * oc[1] + 0.114 * oc[2]) > 200) {
+      if (o.size0 === undefined) o.size0 = o.size;
+      var meas = o.size0 * (k || 1), best = HW[0]; HW.forEach(function (wv) { if (Math.abs(wv - meas) < Math.abs(best - meas)) best = wv; });
+      o.size = best / (k || 1); st.houseOutline = best;
+    }
+  }
   if (st.inner) frames.push(frame('insetFrame', st.inner.size, st.inner.color, st.inner.across));
   st.strokes.forEach(function (s) { frames.push(frame('outsetFrame', s.size, s.color, s.across)); });
   if (frames.length) fx.frameFXMulti = frames;
@@ -2135,7 +2157,7 @@ async function applyPreset(doc, L, name, log) {
   var p = PRESETS[name]; if (!p) { log.push(L.name + ': no look called "' + name + '" - looks: ' + Object.keys(PRESETS).join(', ')); return; }
   var nb = L.boundsNoEffects, tb = { left: nb.left, top: nb.top, right: nb.right, bottom: nb.bottom }, k = Math.max(0.2, (tb.bottom - tb.top) / 100);
   var st = JSON.parse(JSON.stringify(p.st)), opt = {}; (L.name.match(/(\w+)=([#\w.]+)/g) || []).forEach(function (kv) { var q = kv.split('='); opt[q[0].toLowerCase()] = q[1]; });
-  presetOptions(st, opt); st.fill = st.fill || [255, 255, 255]; st.fillOpacity = st.fillOpacity === undefined ? 1 : st.fillOpacity; st.strokes = st.strokes || []; st.bevel = p.bevel || null;
+  presetOptions(st, opt); st.keepWidth = true; st.fill = st.fill || [255, 255, 255]; st.fillOpacity = st.fillOpacity === undefined ? 1 : st.fillOpacity; st.strokes = st.strokes || []; st.bevel = p.bevel || null;
   if (st.glow) { st.glow.dx = st.glow.dx || 0; st.glow.dy = st.glow.dy || 0; }
   var fx = effectsFor(st, k);
   try { await bp({ _obj: 'set', _target: [{ _ref: 'property', _property: 'layerEffects' }, { _ref: 'layer', _id: L.id }, { _ref: 'document', _id: doc.id }], to: fx, _options: { dialogOptions: 'dontDisplay' } }); }
@@ -2180,6 +2202,7 @@ async function matchOne(doc, L, raw, clean, log, selB) {
     if (rf + 8 > mg0 && mg0 < 200) { var AN2 = await analyzeWith(Math.min(200, Math.max(60, Math.round(1.6 * rf)))); if (AN2.st) { AN = AN2; log.push(nm + ': its glow/shadow reaches far - looked again with more room around the text'); } } }
   var b = AN.b, R = AN.R, C = AN.C, st = AN.st;
   if (!st) { log.push(nm + ': no original text found around it'); return; }
+  st.keepWidth = /#keepwidth/i.test(nm);
   // remove the layer's old style first
   var hasFx = false; try { var ab = L.bounds; hasFx = ab.left !== nb.left || ab.top !== nb.top || ab.right !== nb.right || ab.bottom !== nb.bottom; } catch (e) { }
   if (hasFx) { try { await bp({ _obj: 'disableLayerStyle', _target: [{ _ref: 'layer', _id: L.id }, { _ref: 'document', _id: doc.id }], _options: { dialogOptions: 'dontDisplay' } }); tn = await newThick(); } catch (e) { } }
@@ -2346,7 +2369,10 @@ async function runDoc(doc, log, onlySelected) {
   targets = targets.filter(function (o) { return !/#preset\s+\w+/i.test(o.name); });
   if (!targets.length) { log.push('no text layer selected'); return false; }
   var selB = onlySelected ? await selectionBounds(doc) : null;
-  for (var j = 0; j < targets.length; j++) { try { await matchOne(doc, targets[j], raw, clean, log, selB); } catch (e) { log.push(targets[j].name + ' error: ' + e.message); } }
+  for (var j = 0; j < targets.length; j++) {
+    // v2.4.2: work on one layer at a time (with several layers selected Photoshop refuses some 'set' commands: "Set is not currently available")
+    try { await bp({ _obj: 'select', _target: [{ _ref: 'layer', _id: targets[j].id }], makeVisible: false, _options: { dialogOptions: 'dontDisplay' } }); } catch (e) { }
+    try { await matchOne(doc, targets[j], raw, clean, log, selB); } catch (e) { log.push(targets[j].name + ' error: ' + e.message); } }
   return true;
 }
 
@@ -2373,6 +2399,11 @@ var __log = [];
 try {
   await core.executeAsModal(async function (ctx) {
     var doc = app.activeDocument; if (!doc) return;
+    // v2.4.2: selection tools (Magic Wand, Marquee, Lasso...) and painting tools make Photoshop refuse 'set' / 'transform'
+    // ("The command Set is not currently available"). Work with the Move tool and give the user's tool back at the end.
+    // (A marquee you drew around the original text is kept - StyleMatch uses it.)
+    var toolWas = null; try { toolWas = app.currentTool && app.currentTool.id ? String(app.currentTool.id) : null; } catch (e) { }
+    try { if (toolWas !== 'moveTool') await bp({ _obj: 'select', _target: [{ _ref: 'moveTool' }] }); } catch (e) { }
     var testMode = /^FXT_/.test(doc.title || doc.name || '');
     var docs = testMode ? app.documents.filter(function (d) { return /^FXT_/.test(d.title || d.name || ''); }) : [doc];
     for (var i = 0; i < docs.length; i++) {
@@ -2385,6 +2416,7 @@ try {
       if (keepSel.length) { try { await bp({ _obj: 'select', _target: keepSel.map(function (id) { return { _ref: 'layer', _id: id }; }).concat([{ _ref: 'document', _id: d.id }]), makeVisible: false, _options: { dialogOptions: 'dontDisplay' } }); } catch (e) { } }
       await ctx.hostControl.resumeHistory(hid);
     }
+    try { if (toolWas && toolWas !== 'moveTool') await bp({ _obj: 'select', _target: [{ _ref: toolWas }] }); } catch (e) { }
   }, { commandName: 'StyleMatch' });
 } catch (e) { __log.push('ERROR ' + e.message); }
 if (SETTINGS.showSetupErrors && __log.some(function (l) { return /^need layers|^no text layer/.test(l); })) app.showAlert('StyleMatch: ' + __log.filter(function (l) { return /^need layers|^no text layer/.test(l); })[0]);
