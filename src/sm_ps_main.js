@@ -1,4 +1,6 @@
 
+// v2.5: house stroke rule learned from the user's 4,040 finished layers + Grimoire 12 / Cyberpunk 7 QC; plain texts stay plain; "Clear Styles" popup fixed.
+// v2.6: heavy effects - scream / impact stack (blurred, grainy, shaken Smart Object copy under the sharp text + shake ghost).
 // ===================== Photoshop side =====================
 // How to use: keep the original page as a layer named "Raw" and the cleaned page as a layer named "Clean"
 // (without those names: the lowest full-page layer is taken as the original, the next one up as the cleaned page).
@@ -25,6 +27,19 @@ var SETTINGS = {
                        // scaled width (your edits: 3 px white, 6 px on small labels). [] = keep the measured width. #keepwidth in a layer name skips it.
   houseGradient: 0.12, // v2.4.2 house style: coloured letters with one flat colour get a soft 2-colour vertical gradient (top 12% lighter,
                        // bottom 12% darker), like your edits. 0 = off. Black and white letters are left flat.
+  houseStroke: true,   // v2.5 rule learned from your finished layers (4,040): dark letters on a light-but-not-white bubble (grey/tinted, raw
+                       // background 200-249) get a 3 px WHITE outline (your edits: 76% of these); light letters on a dark area get a 3 px DARK outline.
+  houseStrokeWhiteBubble: false, // v2.5 per series: true = dark letters in plain WHITE bubbles also get the 3 px white outline (only some of your series do this)
+  houseStrokeFonts: [], // per series: dark letters in these fonts always get the 3 px white outline (Grimoire: ['HacenTunisia', 'HSN_sadiyah'] - your narration)
+  houseNoStrokeFonts: ['HacenSamra'], // system / neon fonts: glow, never a house outline
+  plainSkip: true,     // v2.5: black letters in a plain white bubble with no outline/glow/shadow in the raw -> the layer is left plain (no style at all),
+                       // like 2,097 of your 2,217 speech texts in white bubbles
+  screamStack: 'auto', // v2.6 heavy effects for screams / impacts / SFX (project rule 7): a copy of the styled text UNDER it becomes a Smart Object with
+                       // Motion Blur (angle + distance measured on the raw, or Radial Zoom when the raw streaks come from a centre) + Add Noise + a small Wave shake,
+                       // plus a faint shake ghost. 'auto': when the raw text is smeared/streaked, or the font is a shout font below; 'always'; 'off'.
+                       // Put #scream in a layer's name to force it on one text, #noscream to skip it.
+  screamFonts: ['Kharabeesh', 'Boahmed-Alhour', 'AfsanehFont', 'bader_al-yadawi'], // shout / impact fonts: with 'auto' they get the stack only when the raw shows motion
+  screamBlurOpacity: 70, screamNoise: 6, screamShake: 3, screamGhost: 40, // copy opacity %, grain %, wave shake amplitude px (0 = none), ghost opacity % (0 = none)
   showSetupErrors: true
 };
 var PS = require('photoshop');
@@ -198,6 +213,20 @@ async function applyPreset(doc, L, name, log) {
   NOTES.push('[' + L.name.slice(0, 40) + ']\rLook: ' + p.family + ' - ' + p.look + (p.note ? '\rBy hand: ' + p.note : ''));
 }
 
+
+// v2.5 house rules ---------------------------------------------------------------
+function lumOf(c) { return 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]; }
+// median brightness of the raw just around the text box (the bubble / panel the original text sat on)
+function ringLum(R, f) { var v = [], p = 6, i, x, y; if (!f) return 255;
+  for (y = Math.max(0, f.y0 - 2 * p); y < Math.min(R.h, f.y1 + 2 * p); y++) for (x = Math.max(0, f.x0 - 2 * p); x < Math.min(R.w, f.x1 + 2 * p); x++) {
+    if (x >= f.x0 - p && x < f.x1 + p && y >= f.y0 - p && y < f.y1 + p) continue; i = 3 * (y * R.w + x); v.push(Math.round(0.299 * R.rgb[i] + 0.587 * R.rgb[i + 1] + 0.114 * R.rgb[i + 2])); }
+  return v.length ? med8(v) : 255; }
+async function hasStyle(doc, id) { try { var r = await bp({ _obj: 'get', _target: [{ _ref: 'layer', _id: id }, { _ref: 'document', _id: doc.id }] }); return !!(r && r[0] && r[0].layerEffects); } catch (e) { return false; } }
+function houseStrokeFor(font, fill, bg) {
+  if (!SETTINGS.houseStroke || !fill) return null;
+  if (lumOf(fill) < 128) { if (SETTINGS.houseStrokeFonts.indexOf(font) >= 0) return { size: 3, color: [255, 255, 255] }; if (bg >= 200 && bg < 250) return { size: 3, color: [255, 255, 255] }; if (bg >= 250 && SETTINGS.houseStrokeWhiteBubble) return { size: 3, color: [255, 255, 255] }; return null; }
+  if (SETTINGS.houseNoStrokeFonts.indexOf(font) >= 0) return null;
+  return bg < 200 ? { size: 3, color: [20, 20, 20] } : null; }
 async function matchOne(doc, L, raw, clean, log, selB) {
   var nm = L.name, nb = L.boundsNoEffects, tb = { left: nb.left, top: nb.top, right: nb.right, bottom: nb.bottom };
   var t0 = Date.now();
@@ -227,9 +256,19 @@ async function matchOne(doc, L, raw, clean, log, selB) {
   var b = AN.b, R = AN.R, C = AN.C, st = AN.st;
   if (!st) { log.push(nm + ': no original text found around it'); return; }
   st.keepWidth = /#keepwidth/i.test(nm);
+  // v2.5 house rules (learned from your finished chapters)
+  var fontNm = ''; try { fontNm = L.textItem.characterStyle.font || ''; } catch (e) { }
+  var bgL = 255; try { bgL = ringLum(AN.R, { x0: Math.max(0, tb.left - b.left), y0: Math.max(0, tb.top - b.top), x1: Math.min(AN.R.w, tb.right - b.left), y1: Math.min(AN.R.h, tb.bottom - b.top) }); } catch (e) { }
+  var bare = !st.strokes.length && !st.glow && !st.shadow && !st.inner && !st.innerGlow && !st.gradient && !st.fillAcross && !st.extrude && !st.split && !st.dots && !st.details && !(st.filters && st.filters.length);
+  if (SETTINGS.plainSkip && bare && st.fill && lumOf(st.fill) < 60 && bgL >= 250 && !SETTINGS.houseStrokeWhiteBubble && SETTINGS.houseStrokeFonts.indexOf(fontNm) < 0 && !/#preset|#radial/i.test(nm)) {
+    var had = false; try { var ab0 = L.bounds; had = ab0.left !== nb.left || ab0.top !== nb.top || ab0.right !== nb.right || ab0.bottom !== nb.bottom; } catch (e) { }
+    if (had && await hasStyle(doc, L.id)) { try { await bp({ _obj: 'disableLayerStyle', _target: [{ _ref: 'layer', _id: L.id }, { _ref: 'document', _id: doc.id }], _options: { dialogOptions: 'dontDisplay' } }); } catch (e) { } }
+    log.push(nm + ': plain black text in a white bubble - left plain (house rule)'); return; }
+  if (!st.strokes.length && !st.keepWidth) { var hs = houseStrokeFor(fontNm, st.fill, bgL);
+    if (hs) { st.strokes = [hs]; log.push(nm + ': house outline ' + hs.size + ' px ' + (lumOf(hs.color) > 128 ? 'white' : 'dark') + ' (raw background ' + bgL + ')'); } }
   // remove the layer's old style first
   var hasFx = false; try { var ab = L.bounds; hasFx = ab.left !== nb.left || ab.top !== nb.top || ab.right !== nb.right || ab.bottom !== nb.bottom; } catch (e) { }
-  if (hasFx) { try { await bp({ _obj: 'disableLayerStyle', _target: [{ _ref: 'layer', _id: L.id }, { _ref: 'document', _id: doc.id }], _options: { dialogOptions: 'dontDisplay' } }); tn = await newThick(); } catch (e) { } }
+  if (hasFx && await hasStyle(doc, L.id)) { try { await bp({ _obj: 'disableLayerStyle', _target: [{ _ref: 'layer', _id: L.id }, { _ref: 'document', _id: doc.id }], _options: { dialogOptions: 'dontDisplay' } }); tn = await newThick(); } catch (e) { } }
   // the original colour ramp runs inside each line: repeat it in every line of the new text (stops of one Gradient Overlay)
   if (st.gradient && st.gradient.perLine) { try { var TA = await layerRGB(doc, L, tbb), lns = FX.textLines(TA.alpha, TA.w, TA.h, 0.5);
       if (lns.length >= 2) { var Hh = Math.max(1, TA.h), fT = st.gradient.fTop === undefined ? 0.2 : st.gradient.fTop, fB = st.gradient.fBot === undefined ? 0.8 : st.gradient.fBot, gs = [];
@@ -311,6 +350,31 @@ async function matchOne(doc, L, raw, clean, log, selB) {
         await addLayerMask(doc, RL.id, rm, rbx); }
       log.push(nm + ': Radial Blur copy above the text - Smart Object, ' + (rb.method === 'spin' ? 'Spin' : 'Zoom') + ' Amount ' + amt + ', Good' + (offC ? ', faded on the short side (layer mask)' : '') + (st.radial ? ' (streaks measured: ' + Math.round(rb.gain * 100) + '% better fit)' : ' (your setting)')); }
     catch (e) { log.push(nm + ': radial blur copy not added (' + e.message + ')'); } }
+  // v2.6 heavy effects: scream / impact stack (a blurred, grainy, shaken Smart Object copy UNDER the sharp text + a faint ghost)
+  var sOn = !/#noscream/i.test(nm) && SETTINGS.screamStack !== 'off' && (SETTINGS.screamStack === 'always' || /#scream/i.test(nm) ||
+    (st.suggest && st.suggest.type === 'motion') || (st.radial && SETTINGS.screamFonts.indexOf(fontNm) >= 0));
+  if (sOn) { try {
+      var th = Math.max(8, tb.bottom - tb.top), mo = st.suggest && st.suggest.type === 'motion' ? st.suggest : null, useRad = !mo && st.radial;
+      var ang = mo ? mo.angle : 0, dist = Math.max(6, Math.round(mo ? mo.dist * k : 0.25 * th));
+      var sel1 = function (id) { return bp({ _obj: 'select', _target: [{ _ref: 'layer', _id: id }, { _ref: 'document', _id: doc.id }], makeVisible: false, _options: { dialogOptions: 'dontDisplay' } }); };
+      var dupDown = async function () { await bp({ _obj: 'duplicate', _target: [{ _ref: 'layer', _enum: 'ordinal', _value: 'targetEnum' }], version: 5, _options: { dialogOptions: 'dontDisplay' } });
+        await bp({ _obj: 'move', _target: [{ _ref: 'layer', _enum: 'ordinal', _value: 'targetEnum' }], to: { _ref: 'layer', _enum: 'ordinal', _value: 'previous' }, _options: { dialogOptions: 'dontDisplay' } });
+        await bp({ _obj: 'newPlacedLayer', _options: { dialogOptions: 'dontDisplay' } }); return doc.activeLayers[0]; };
+      await sel1(baseId); var SB = await dupDown();
+      if (useRad) await bp({ _obj: 'radialBlur', amount: Math.max(5, Math.min(60, Math.round(st.radial.amount || 25))), blurMethod: { _enum: 'blurMethod', _value: st.radial.method === 'spin' ? 'spin' : 'zoom' }, blurQuality: { _enum: 'blurQuality', _value: 'good' }, _options: { dialogOptions: 'dontDisplay' } });
+      else await bp({ _obj: 'motionBlur', angle: Math.round(ang), distance: px(dist), _options: { dialogOptions: 'dontDisplay' } });
+      if (SETTINGS.screamNoise > 0) await bp(Object.assign(KB.addNoise.bp({ amount: SETTINGS.screamNoise, mono: true }), { _options: { dialogOptions: 'dontDisplay' } }));
+      if (SETTINGS.screamShake > 0) try { await bp({ _obj: 'wave', waveType: { _enum: 'waveType', _value: 'sine' }, numberOfGenerators: 2, wavelengthMin: Math.round(0.6 * th), wavelengthMax: Math.round(1.2 * th), amplitudeMin: 1, amplitudeMax: SETTINGS.screamShake, scaleHorizontal: 100, scaleVertical: 100, undefinedArea: { _enum: 'undefinedArea', _value: 'repeatEdgePixels' }, randomSeed: 7, _options: { dialogOptions: 'dontDisplay' } }); } catch (e) { log.push(nm + ': wave shake skipped (' + e.message + ')'); }
+      await bp({ _obj: 'set', _target: [{ _ref: 'layer', _id: SB.id }, { _ref: 'document', _id: doc.id }], to: { _obj: 'layer', opacity: pct(SETTINGS.screamBlurOpacity) }, _options: { dialogOptions: 'dontDisplay' } });
+      try { SB.name = nm.slice(0, 30) + ' - scream blur (StyleMatch)'; } catch (e) { }
+      var ghost = '';
+      if (SETTINGS.screamGhost > 0) { await sel1(baseId); var GH = await dupDown(); var gr = ang * Math.PI / 180, gd = Math.max(4, Math.round(dist / 2));
+        await bp({ _obj: 'move', _target: [{ _ref: 'layer', _enum: 'ordinal', _value: 'targetEnum' }], to: { _obj: 'offset', horizontal: px(Math.round(gd * Math.cos(gr))), vertical: px(-Math.round(gd * Math.sin(gr))) }, _options: { dialogOptions: 'dontDisplay' } });
+        await bp({ _obj: 'set', _target: [{ _ref: 'layer', _id: GH.id }, { _ref: 'document', _id: doc.id }], to: { _obj: 'layer', opacity: pct(SETTINGS.screamGhost) }, _options: { dialogOptions: 'dontDisplay' } });
+        try { GH.name = nm.slice(0, 30) + ' - shake ghost (StyleMatch)'; } catch (e) { } ghost = ' + shake ghost ' + gd + ' px at ' + SETTINGS.screamGhost + '%'; }
+      await sel1(baseId);
+      log.push(nm + ': scream stack - Smart Object copy under the text: ' + (useRad ? 'Radial ' + (st.radial.method === 'spin' ? 'Spin' : 'Zoom') : 'Motion Blur ' + Math.round(ang) + ' deg ' + dist + ' px') + (SETTINGS.screamNoise ? ' + noise ' + SETTINGS.screamNoise + '%' : '') + (SETTINGS.screamShake ? ' + wave shake ' + SETTINGS.screamShake + ' px' : '') + ', opacity ' + SETTINGS.screamBlurOpacity + '%' + ghost + (mo ? ' (smear measured on the raw)' : ' (default: no smear measured)'));
+    } catch (e) { log.push(nm + ': scream stack not added (' + e.message + ')'); } }
   if (st.cleanNote) log.push(nm + ': ' + st.cleanNote);
   var nl = null; try { nl = nearestLook(st); } catch (e) { }
   if (SETTINGS.notes) NOTES.push('[' + nm.slice(0, 40) + ']\r' + recipe(st, k, hex).join('\r') + (nl ? '\rClosest look in the library: ' + nl + ' (' + PRESETS[nl].family + ') - name a layer "#preset ' + nl + '" to try it' : ''));
@@ -379,13 +443,21 @@ async function runDoc(doc, log, onlySelected) {
   var pre = (onlySelected ? (doc.activeLayers || []) : walk(doc.layers, [])).filter(function (o) { return !isGroup(o) && /#preset\s+\w+/i.test(o.name); });
   for (var pi = 0; pi < pre.length; pi++) { try { await applyPreset(doc, pre[pi], pre[pi].name.match(/#preset\s+(\w+)/i)[1], log); } catch (e) { log.push(pre[pi].name + ' error: ' + e.message); } }
   if (pre.length && onlySelected && pre.length === (doc.activeLayers || []).length) return true;
-  var all = walk(doc.layers, []), clean = findLayer(all, /^clean\b|^clean$/i) || findLayer(all, /clean/i), raw = findLayer(all, /^raw\b|^raw$/i) || findLayer(all, /raw/i);
+  var all = walk(doc.layers, []), clean = findLayer(all, /^clean\b|^clean$/i) || findLayer(all, /clean/i), raw = findLayer(all, /^raw\b|^raw$/i) || findLayer(all, /raw/i) || findLayer(all, /^original\b/i);
+  // v2.6: your usual PSD needs no renaming - Background (bottom) = the original, the next picture layer up (Layer 1, TypeR Clean...) = the clean.
+  // Watermarks, StyleMatch's own layers and text/SFX art are never taken as the clean.
+  var notPage = /team.?x|watermark|\bwm\b|stylematch|logo|credit/i;
   // layers not named Raw / Clean: the original is the lowest full-page picture layer, the cleaned page the next one up
   function fullPage(o) { if (isText(o) || isGroup(o)) return false; var ob = o.boundsNoEffects || o.bounds; return ob && ob.left <= 0 && ob.top <= 0 && ob.right >= doc.width && ob.bottom >= doc.height; }
-  if (!raw || !clean) { var pages = []; for (var q = all.length - 1; q >= 0; q--) if (fullPage(all[q]) && (!clean || all[q].id !== clean.id) && (!raw || all[q].id !== raw.id)) pages.push(all[q]);
+  if (!raw || !clean) { var pages = []; for (var q = all.length - 1; q >= 0; q--) if (fullPage(all[q]) && !notPage.test(all[q].name) && (!clean || all[q].id !== clean.id) && (!raw || all[q].id !== raw.id)) pages.push(all[q]);
     if (!raw && pages.length) raw = pages.shift();
-    if (!clean && pages.length) clean = pages.shift(); }
-  if (!raw || !clean) { log.push('need layers named "Raw" and "Clean" in ' + doc.title); return false; }
+    if (!clean && pages.length) clean = pages.shift();
+    // no second full-page layer: the biggest picture layer above the original (a partial clean patch works - it is laid over the original)
+    if (raw && !clean) { var best = null, ba = 0, ri = all.indexOf(raw);
+      for (var q2 = 0; q2 < all.length; q2++) { var o2 = all[q2]; if (o2.id === raw.id || isText(o2) || isGroup(o2) || isSO(o2) || notPage.test(o2.name) || (ri >= 0 && q2 > ri)) continue;
+        var b2 = o2.boundsNoEffects || o2.bounds; if (!b2) continue; var a2 = (b2.right - b2.left) * (b2.bottom - b2.top); if (a2 > ba) { ba = a2; best = o2; } }
+      if (best && ba > 0.02 * doc.width * doc.height) clean = best; } }
+  if (!raw || !clean) { log.push('need layers named "Raw" and "Clean" in ' + doc.title + ' (or: the original as the bottom layer and the cleaned page as a picture layer above it)'); return false; }
   var targets = [];
   if (onlySelected) { var sel = (doc.activeLayers || []).filter(function (o) { return !/#preset\s+\w+/i.test(o.name); }); for (var i = 0; i < sel.length; i++) if (sel[i].id !== raw.id && sel[i].id !== clean.id && !isGroup(sel[i])) targets.push(sel[i]); }
   else { all.forEach(function (L) { if (isText(L) && L.visible) targets.push(L); });

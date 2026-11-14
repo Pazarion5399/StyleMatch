@@ -21,7 +21,7 @@ Adobe Photoshop 2025 on Windows (tested). Photoshop 2022 or newer should work (U
 
 ## Use
 ### Match the original
-1. Your page needs the original as a layer named **Raw** and the cleaned page as a layer named **Clean** (without those names: the lowest full-page layer is the raw, the next one up the clean).
+1. No renaming needed: the original is the bottom layer (Background) and the cleaned page is the picture layer above it (Layer 1, TypeR Clean...). Layers named **Raw** / **Clean** are used first if you have them. Watermark layers are ignored.
 2. Put your translated text roughly where the original text was.
 3. Select your text layer(s) and run **StyleMatch.psjs**.
 4. Tip: if your text sits far from the original, draw a marquee around the original text first.
