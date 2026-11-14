@@ -12,7 +12,11 @@ Photoshop script for manga / manhwa / webtoon typesetters (English and Arabic). 
 - One Ctrl+Z undoes a run.
 
 ## Video tutorial
-[▶ Watch: StyleMatch v2.6 tutorial (42 s, English + Arabic)](docs/video/StyleMatch_v2.6_tutorial.mp4) — 3 steps, then real before/after samples on finished pages.
+StyleMatch v2.6 tutorial (42 s, English + Arabic): 3 steps, then real before/after samples on finished pages.
+
+https://github.com/user-attachments/assets/0a5cbc85-51e8-4960-bb1c-d8bff7be2849
+
+(Can't play it? [Download the video](docs/video/StyleMatch_v2.6_tutorial.mp4).)
 
 ## Requirements
 Adobe Photoshop 2025 on Windows (tested). Photoshop 2022 or newer should work (UXP scripting); not tested.
