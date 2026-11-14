@@ -11,6 +11,9 @@ Photoshop script for manga / manhwa / webtoon typesetters (English and Arabic). 
 - **Looks library**: 22 ready looks (neon, 3D cartoon, glitch, comic, retro, chrome, gold, holographic, fire, ice, horror, grunge, ink, halftone, glitter...) built from scratch with Photoshop's own tools. No paid templates are used or included.
 - One Ctrl+Z undoes a run.
 
+## Video tutorial
+[▶ Watch: StyleMatch v2.6 tutorial (42 s, English + Arabic)](docs/video/StyleMatch_v2.6_tutorial.mp4) — 3 steps, then real before/after samples on finished pages.
+
 ## Requirements
 Adobe Photoshop 2025 on Windows (tested). Photoshop 2022 or newer should work (UXP scripting); not tested.
 
